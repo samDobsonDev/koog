@@ -29,6 +29,7 @@ mysql = "8.0.33"
 netty = "4.2.6.Final"
 opentelemetry = "1.51.0"
 oshai-logging = "7.0.7"
+pgvector = "0.1.6"
 postgresql = "42.7.4"
 slf4j = "2.0.17"
 spring-boot = "3.5.3"
@@ -94,6 +95,7 @@ exposed-jdbc = { module = "org.jetbrains.exposed:exposed-jdbc", version.ref = "e
 exposed-json = { module = "org.jetbrains.exposed:exposed-json", version.ref = "exposed" }
 exposed-kotlin-datetime = { module = "org.jetbrains.exposed:exposed-kotlin-datetime", version.ref = "exposed" }
 hikaricp = { module = "com.zaxxer:HikariCP", version.ref = "hikaricp" }
+pgvector = { module = "com.pgvector:pgvector", version.ref = "pgvector" }
 postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
 mysql = { module = "com.mysql:mysql-connector-j", version.ref = "mysql" }
 h2 = { module = "com.h2database:h2", version.ref = "h2" }

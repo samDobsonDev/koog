@@ -63,4 +63,14 @@ class VectorTest {
             vector1.euclideanDistance(vector2)
         }
     }
+
+    @Test
+    fun testToFloatArray() {
+        val vector = Vector(listOf(1.0, 2.5, -3.75))
+        val floatArray = vector.toFloatArray()
+        assertEquals(3, floatArray.size)
+        assertEquals(1.0f, floatArray[0], 0.0001f)
+        assertEquals(2.5f, floatArray[1], 0.0001f)
+        assertEquals(-3.75f, floatArray[2], 0.0001f)
+    }
 }

@@ -27,7 +27,7 @@ public interface VectorStorage<Document> : DocumentStorageWithPayload<Document, 
  * @property storage Underlying storage system to hold documents and their corresponding vector embeddings.
  */
 public open class EmbeddingBasedDocumentStorage<Document>(
-    private val embedder: DocumentEmbedder<Document>,
+    protected val embedder: DocumentEmbedder<Document>,
     private val storage: VectorStorage<Document>
 ) : RankedDocumentStorage<Document> {
     /**

@@ -31,6 +31,8 @@ kotlin {
                 implementation(project(":agents:agents-mcp"))
                 implementation(project(":agents:agents-mcp-server"))
                 implementation(project(":agents:agents-test"))
+                implementation(project(":embeddings:embeddings-llm"))
+                implementation(project(":rag:vector-storage"))
                 implementation(
                     project(":prompt:prompt-executor:prompt-executor-clients:prompt-executor-anthropic-client")
                 )
@@ -46,6 +48,7 @@ kotlin {
                 implementation(libs.aws.sdk.kotlin.bedrock)
                 implementation(libs.aws.sdk.kotlin.bedrockruntime)
                 implementation(libs.ktor.client.content.negotiation)
+                implementation(libs.testcontainers.postgresql)
             }
         }
     }

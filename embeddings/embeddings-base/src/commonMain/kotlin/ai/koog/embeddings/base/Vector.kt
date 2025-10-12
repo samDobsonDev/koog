@@ -96,4 +96,13 @@ public data class Vector(val values: List<Double>) {
 
         return sqrt(kahanSum(values.zip(other.values)) { (a, b) -> (a - b).let { it * it } })
     }
+
+    /**
+     * Converts this [Vector], whose elements are stored as [Double] values,
+     * to a [FloatArray] for compatibility with libraries (e.g. pgvector-java)
+     * that require float-precision vectors.
+     *
+     * @return A [FloatArray] containing the values of this vector as floats.
+     */
+    public fun toFloatArray(): FloatArray = values.map { it.toFloat() }.toFloatArray()
 }
