@@ -29,6 +29,7 @@ mysql = "8.0.33"
 netty = "4.2.6.Final"
 opentelemetry = "1.51.0"
 oshai-logging = "7.0.7"
+pdfbox = "2.0.29"
 pgvector = "0.1.6"
 postgresql = "42.7.4"
 slf4j = "2.0.17"
@@ -108,6 +109,7 @@ aws-sdk-kotlin-bedrock = { module = "aws.sdk.kotlin:bedrock", version.ref = "aws
 aws-sdk-kotlin-bedrockruntime = { module = "aws.sdk.kotlin:bedrockruntime", version.ref = "aws-sdk-kotlin" }
 aws-sdk-kotlin-sts = { module = "aws.sdk.kotlin:sts", version.ref = "aws-sdk-kotlin" }
 android-tools-gradle = { module = "com.android.tools.build:gradle", version.ref = "agp" }
+pdfbox = { module = "org.apache.pdfbox:pdfbox", version.ref = "pdfbox" }
 
 # Spring
 spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "spring-boot" }

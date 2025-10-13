@@ -1,6 +1,9 @@
 package ai.koog.rag.vector
 
 import ai.koog.embeddings.base.Vector
+import ai.koog.rag.base.chunking.DocumentChunk
+import ai.koog.rag.base.chunking.ParagraphChunker
+import ai.koog.rag.base.files.TextRange
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
@@ -859,5 +862,71 @@ class PgVectorStorageTest {
             assertNotNull(entry)
             assertEquals(expectedVec.values, entry!!.payload.values)
         }
+    }
+
+    @Test
+    fun `can store and query document chunks with metadata in PgVectorStorage`() = runBlocking {
+        // The original document (with paragraphs)
+        val document = "Intro paragraph.\n\nDetail paragraph.\n\nConclusion paragraph."
+        val chunker = ParagraphChunker()
+        val documentChunks: List<DocumentChunk<String>> = chunker.chunk(document)
+        assertTrue(documentChunks.size >= 2, "Should have at least two chunks (paragraphs).")
+
+        // Set up PgVectorStorage for DocumentWithMetadata<DocumentChunk<String>>
+        val storage = PgVectorStorage.floatVectorStorage(
+            connectionProvider = connProvider,
+            vectorDimension = 3,
+            serializer = DocumentChunk.serializer(String.serializer()),
+            tableName = "test_chunking_vector_with_metadata"
+        )
+
+        // Fake embedding: just use the text length, real code would use an embedder
+        fun fakeEmbedding(chunk: DocumentChunk<String>): Vector =
+            Vector(listOf(chunk.text.length.toDouble(), 0.0, 0.0))
+
+        // Store all chunks, each wrapped with per-chunk metadata
+        val chunkIdPairs = documentChunks.mapIndexed { idx, chunk ->
+            val document = DocumentWithMetadata(
+                content = chunk,
+                documentType = "paragraph-chunk",
+                source = "test-doc",
+                tags = listOf("auto-chunked", "test"),
+                metadata = mapOf("chunkIndex" to JsonPrimitive(idx))
+            )
+            val id = storage.store(document, fakeEmbedding(chunk))
+            id to document
+        }
+        assertEquals(documentChunks.size, chunkIdPairs.size)
+
+        for ((storedDocumentId, storedDocumentWithMetadata) in chunkIdPairs) {
+            val retrievedDocumentWithMetadata = storage.read(storedDocumentId)
+            assertNotNull(retrievedDocumentWithMetadata, "read($storedDocumentId) returned null")
+            assertEquals(storedDocumentWithMetadata.content.text, retrievedDocumentWithMetadata!!.content.text)
+            assertEquals(storedDocumentWithMetadata.documentType, retrievedDocumentWithMetadata.documentType)
+            assertEquals(storedDocumentWithMetadata.source, retrievedDocumentWithMetadata.source)
+            assertEquals(storedDocumentWithMetadata.tags, retrievedDocumentWithMetadata.tags)
+            assertEquals(storedDocumentWithMetadata.metadata, retrievedDocumentWithMetadata.metadata)
+        }
+
+        // Search for a chunk containing "Intro"
+        val queryDocumentChunk = DocumentChunk(
+            parent = document,
+            range = TextRange(0, 5),
+            text = "Intro"
+        )
+        val queryEmbedding = fakeEmbedding(queryDocumentChunk)
+
+        val similarDocumentsAndEmbeddings = storage.topKSimilarDocumentsWithOperator(
+            queryVector = queryEmbedding,
+            topK = 1,
+            operator = VectorDistanceOperator.L2
+        ).toList()
+
+        assertTrue(similarDocumentsAndEmbeddings.isNotEmpty())
+        val (mostSimilarDocument, _) = similarDocumentsAndEmbeddings.first()
+        assertTrue(mostSimilarDocument.content.text.contains("Intro"), "Should match intro paragraph chunk")
+        assertEquals("paragraph-chunk", mostSimilarDocument.documentType)
+        assertEquals("test-doc", mostSimilarDocument.source)
+        assertTrue(mostSimilarDocument.tags.contains("auto-chunked"))
     }
 }

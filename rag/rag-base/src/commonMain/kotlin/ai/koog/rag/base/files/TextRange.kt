@@ -13,7 +13,7 @@ import kotlin.math.min
  * @property endExclusive The exclusive end index of the range.
  */
 @Serializable
-internal data class TextRange(val start: Int, val endExclusive: Int) {
+public data class TextRange(val start: Int, val endExclusive: Int) {
     /**
      * The inclusive end boundary of the range.
      *
