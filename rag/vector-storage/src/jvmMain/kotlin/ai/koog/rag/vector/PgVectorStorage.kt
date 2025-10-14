@@ -382,21 +382,7 @@ public class PgVectorStorage<Document> private constructor(
             val resultSet = statement.executeQuery()
             val documentWithPayload =
                 if (resultSet.next()) {
-                    val embeddingObj = resultSet.getObject("embedding")
-                    val vector = when (vectorType) {
-                        VectorStorageType.FLOAT_VECTOR -> when (embeddingObj) {
-                            is PGvector -> Vector(embeddingObj.toArray().map { it.toDouble() })
-                            is PGobject -> Vector(PGvector(embeddingObj.value).toArray().map { it.toDouble() })
-                            else -> error("Unknown embedding type for FLOAT_VECTOR: ${embeddingObj?.javaClass}")
-                        }
-                        VectorStorageType.BIT_VECTOR -> {
-                            val bitString = (embeddingObj as PGobject).value
-                            requireNotNull(bitString) { "BIT_VECTOR column returned null value (expected a 0/1 string)" }
-                            Vector(bitString.map { if (it == '1') 1.0 else 0.0 })
-                        }
-                    }
-                    val documentWithMetadata = documentWithMetadataFromResultSet(resultSet)
-                    DocumentWithPayload(documentWithMetadata, vector)
+                    documentWithPayloadFromResultSet(resultSet)
                 } else null
             resultSet.close(); statement.close()
             documentWithPayload
@@ -432,26 +418,15 @@ public class PgVectorStorage<Document> private constructor(
                 "SELECT content, embedding, document_type, source, tags, metadata FROM $tableName"
             )
             while (resultSet.next()) {
-                val embeddingObj = resultSet.getObject("embedding")
-                val vector = when (vectorType) {
-                    VectorStorageType.FLOAT_VECTOR -> when (embeddingObj) {
-                        is PGvector -> Vector(embeddingObj.toArray().map { it.toDouble() })
-                        is org.postgresql.util.PGobject -> Vector(PGvector(embeddingObj.value).toArray().map { it.toDouble() })
-                        else -> error("Unknown embedding type for FLOAT_VECTOR: ${embeddingObj?.javaClass}")
-                    }
-                    VectorStorageType.BIT_VECTOR -> {
-                        val bitString = (embeddingObj as org.postgresql.util.PGobject).value
-                        requireNotNull(bitString) { "BIT_VECTOR column returned null value (expected a 0/1 string)" }
-                        Vector(bitString.map { if (it == '1') 1.0 else 0.0 })
-                    }
-                }
-                val documentWithMetadata = documentWithMetadataFromResultSet(resultSet)
-                emit(DocumentWithPayload(documentWithMetadata, vector))
+                emit(documentWithPayloadFromResultSet(resultSet))
             }
             resultSet.close(); statement.close()
         }
     }
 
+    /**
+     * Reads the current row from the [ResultSet] and deserializes it into a [DocumentWithMetadata].
+     */
     private fun documentWithMetadataFromResultSet(rs: ResultSet): DocumentWithMetadata<Document> {
         val content = json.decodeFromString(serializer, rs.getString("content"))
         val documentType = rs.getString("document_type")
@@ -467,6 +442,27 @@ public class PgVectorStorage<Document> private constructor(
             tags = tags,
             metadata = metadata
         )
+    }
+
+    /**
+     * Helper to create a [DocumentWithPayload] from a [ResultSet] pointing to a valid row.
+     */
+    private fun documentWithPayloadFromResultSet(rs: ResultSet): DocumentWithPayload<DocumentWithMetadata<Document>, Vector> {
+        val embeddingObj = rs.getObject("embedding")
+        val vector = when (vectorType) {
+            VectorStorageType.FLOAT_VECTOR -> when (embeddingObj) {
+                is PGvector -> Vector(embeddingObj.toArray().map { it.toDouble() })
+                is PGobject -> Vector(PGvector(embeddingObj.value).toArray().map { it.toDouble() })
+                else -> error("Unknown embedding type for FLOAT_VECTOR: ${embeddingObj?.javaClass}")
+            }
+            VectorStorageType.BIT_VECTOR -> {
+                val bitString = (embeddingObj as PGobject).value
+                requireNotNull(bitString) { "BIT_VECTOR column returned null value (expected a 0/1 string)" }
+                Vector(bitString.map { if (it == '1') 1.0 else 0.0 })
+            }
+        }
+        val documentWithMetadata = documentWithMetadataFromResultSet(rs)
+        return DocumentWithPayload(documentWithMetadata, vector)
     }
 
     /**
@@ -589,6 +585,100 @@ public class PgVectorStorage<Document> private constructor(
             val similarity = 1.0 / (1.0 + distance)
             emit(doc to similarity)
         }
+    }
+}
+
+
+
+/**
+ * Sealed interface representing a PostgreSQL pgvector operator for measuring distance or similarity
+ * between vectors. Each implementing operator provides its SQL representation.
+ *
+ * Documentation: https://github.com/pgvector/pgvector?tab=readme-ov-file#querying
+ *
+ * @property sql The SQL string for the vector operator.
+ */
+public sealed interface VectorDistanceOp {
+    /**
+     * The SQL syntax string representing this distance or similarity operator,
+     * as used in PostgreSQL pgvector queries (e.g., `<->`, `<#>`, `<~>`, etc.).
+     */
+    public val sql: String
+}
+
+/**
+ * Represents the set of valid distance/similarity operators available for
+ * floating-point vector columns in PostgreSQL with the pgvector extension.
+ *
+ * These operators can be used for dense float embeddings.
+ *
+ * - [L2]: Euclidean (L2) distance, SQL: `<->`
+ * - [DOT_PRODUCT]: Negative inner product, SQL: `<#>`
+ * - [COSINE]: Cosine distance, SQL: `<=>`
+ * - [L1]: Manhattan (L1) distance, SQL: `<+>`
+ *
+ * @property sql The SQL string for the operator as consumed by pgvector queries.
+ *
+ * @see BitVectorOperator For binary (0/1) vector operators.
+ */
+public open class FloatVectorOperator(
+    override val sql: String
+) : VectorDistanceOp {
+
+    /**
+     * Contains predefined, supported operators for float vector types.
+     *
+     * @property L2 Euclidean (L2) distance: `<->`
+     * @property DOT_PRODUCT Negative inner product: `<#>`
+     * @property COSINE Cosine distance: `<=>`
+     * @property L1 Manhattan (L1) distance: `<+>`
+     * @property values All supported float operators as a set.
+     */
+    public companion object {
+        /** Euclidean (L2) distance, SQL: `<->` */
+        public val L2: FloatVectorOperator = FloatVectorOperator("<->")
+        /** Negative inner product, SQL: `<#>` */
+        public val DOT_PRODUCT: FloatVectorOperator = FloatVectorOperator("<#>")
+        /** Cosine distance, SQL: `<=>` */
+        public val COSINE: FloatVectorOperator = FloatVectorOperator("<=>")
+        /** Manhattan (L1) distance, SQL: `<+>` */
+        public val L1 : FloatVectorOperator = FloatVectorOperator("<+>")
+        /** All supported float vector operators. */
+        public val values: Set<FloatVectorOperator> = setOf(L2, DOT_PRODUCT, COSINE, L1)
+    }
+}
+
+/**
+ * Represents the set of valid distance/similarity operators available for
+ * binary (bit/boolean) vector columns in PostgreSQL with the pgvector extension.
+ *
+ * These operators can be used for binary/bit-packed vector representations.
+ *
+ * - [HAMMING]: Hamming distance, SQL: `<~>`
+ * - [JACCARD]: Jaccard distance, SQL: `<%>`
+ *
+ * @property sql The SQL string for the operator as consumed by pgvector queries.
+ *
+ * @see FloatVectorOperator For float (dense embedding) operators.
+ */
+public open class BitVectorOperator(
+    override val sql: String
+) : VectorDistanceOp {
+
+    /**
+     * Contains predefined, supported operators for bit vector types.
+     *
+     * @property HAMMING Hamming distance: `<~>`
+     * @property JACCARD Jaccard distance: `<%>`
+     * @property values All supported bit operators as a set.
+     */
+    public companion object {
+        /** Hamming distance, SQL: `<~>` */
+        public val HAMMING: BitVectorOperator = BitVectorOperator("<~>")
+        /** Jaccard distance, SQL: `<%>` */
+        public val JACCARD: BitVectorOperator = BitVectorOperator("<%>")
+        /** All supported bit vector operators. */
+        public val values: Set<BitVectorOperator> = setOf(HAMMING, JACCARD)
     }
 }
 

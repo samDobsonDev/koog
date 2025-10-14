@@ -39,9 +39,6 @@ kotlin {
                 implementation(kotlin("test-junit5"))
                 implementation(libs.junit.jupiter.params)
                 implementation(libs.kotlinx.coroutines.test)
-                implementation(libs.mockk)
-                implementation(libs.testcontainers)
-                implementation(libs.testcontainers.postgresql)
             }
         }
     }

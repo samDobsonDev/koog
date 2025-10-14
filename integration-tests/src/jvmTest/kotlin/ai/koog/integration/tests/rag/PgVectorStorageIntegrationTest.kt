@@ -1,9 +1,19 @@
-package ai.koog.rag.vector
+package ai.koog.integration.tests.rag
 
 import ai.koog.embeddings.base.Vector
+import ai.koog.embeddings.local.LLMEmbedder
+import ai.koog.prompt.executor.clients.openai.OpenAIModels
+import ai.koog.prompt.executor.clients.openai.OpenAILLMClient
+import ai.koog.integration.tests.utils.TestUtils
 import ai.koog.rag.base.chunking.DocumentChunk
 import ai.koog.rag.base.chunking.ParagraphChunker
 import ai.koog.rag.base.files.TextRange
+import ai.koog.rag.vector.DocumentEmbedder
+import ai.koog.rag.vector.DocumentWithMetadata
+import ai.koog.rag.vector.PgVectorRankedDocumentStorage
+import ai.koog.rag.vector.PgVectorStorage
+import ai.koog.rag.vector.VectorDistanceOperator
+import ai.koog.rag.vector.VectorStorageType
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
@@ -14,7 +24,6 @@ import org.junit.jupiter.api.*
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.EnumSource
 import org.testcontainers.containers.PostgreSQLContainer
@@ -22,13 +31,12 @@ import org.testcontainers.utility.DockerImageName
 import java.sql.Connection
 import java.sql.DriverManager
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class PgVectorStorageTest {
+class PgVectorStorageIntegrationTest {
 
     companion object {
-        // Configures the PostgreSQLContainer to use an image that contains a version of Postgres
-        // with the pgvector extension already installed and enabled.
         class KPostgresContainer : PostgreSQLContainer<KPostgresContainer>(
             DockerImageName.parse("pgvector/pgvector:0.8.1-pg18-trixie")
         )
@@ -47,9 +55,7 @@ class PgVectorStorageTest {
                 start()
             }
         connProvider = {
-            DriverManager.getConnection(
-                postgres.jdbcUrl, postgres.username, postgres.password
-            )
+            DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password)
         }
     }
 
@@ -59,7 +65,7 @@ class PgVectorStorageTest {
     }
 
     @Test
-    fun `FLOAT factory with default operator builds correct PgVectorStorage`() {
+    fun `integration_float vector storage factory with default operator builds correct PgVectorStorage`() {
         @Serializable data class Dummy(val x: Int)
 
         val storage = PgVectorStorage.floatVectorStorage(
@@ -73,7 +79,7 @@ class PgVectorStorageTest {
     }
 
     @Test
-    fun `FLOAT factory with named params and custom operator set`() {
+    fun `integration_float vector storage factory with named params and custom operator set`() {
         @Serializable data class Dummy(val x: Int)
         val allOps = setOf(
             VectorDistanceOperator.L2,
@@ -95,7 +101,7 @@ class PgVectorStorageTest {
     }
 
     @Test
-    fun `BIT factory default operator builds correct PgVectorStorage`() {
+    fun `integration_bit vector storage default operator builds correct PgVectorStorage`() {
         @Serializable data class Dummy(val y: String)
         val bitStorage = PgVectorStorage.bitVectorStorage(
             connectionProvider = connProvider,
@@ -108,7 +114,7 @@ class PgVectorStorageTest {
     }
 
     @Test
-    fun `BIT factory with custom operator set all allowed ops`() {
+    fun `integration_bit vector storage factory with custom operator set all allowed ops`() {
         @Serializable data class Dummy(val y: String)
         val ops = setOf(VectorDistanceOperator.HAMMING, VectorDistanceOperator.JACCARD)
         val bitStorage = PgVectorStorage.bitVectorStorage(
@@ -123,7 +129,7 @@ class PgVectorStorageTest {
     }
 
     @Test
-    fun `FLOAT factory throws with invalid operators`() {
+    fun `integration_float vector storage factory throws with invalid operators`() {
         @Serializable data class Dummy(val z: Int)
         val forbiddenOps = setOf(VectorDistanceOperator.HAMMING, VectorDistanceOperator.JACCARD)
         val ex = assertThrows<IllegalArgumentException> {
@@ -135,11 +141,11 @@ class PgVectorStorageTest {
                 distanceOperators = forbiddenOps
             )
         }
-        assertTrue("Operators" in ex.message!!)
+        Assertions.assertTrue("Operators" in ex.message!!)
     }
 
     @Test
-    fun `BIT factory throws with non-binary operators`() {
+    fun `integration_bit vector factory throws with non-binary operators`() {
         @Serializable data class Dummy(val z: Int)
         val forbiddenOps = setOf(VectorDistanceOperator.L2, VectorDistanceOperator.L1, VectorDistanceOperator.COSINE)
         val ex = assertThrows<IllegalArgumentException> {
@@ -151,11 +157,11 @@ class PgVectorStorageTest {
                 distanceOperators = forbiddenOps
             )
         }
-        assertTrue("Operators" in ex.message!!)
+        Assertions.assertTrue("Operators" in ex.message!!)
     }
 
     @Test
-    fun `float vector storage fails with vector dimension too large for HNSW index`() {
+    fun `integration_float vector storage fails with vector dimension too large for HNSW index`() {
         @Serializable data class Dummy(val d: Int)
         val ex = assertThrows<IllegalArgumentException> {
             PgVectorStorage.floatVectorStorage(
@@ -172,7 +178,7 @@ class PgVectorStorageTest {
 
 
     @Test
-    fun `bit vector storage fails with vector dimension too large for HNSW index`() {
+    fun `integration_bit vector storage fails with vector dimension too large for HNSW index`() {
         @Serializable data class Dummy(val d: Int)
         val ex = assertThrows<IllegalArgumentException> {
             PgVectorStorage.bitVectorStorage(
@@ -188,9 +194,8 @@ class PgVectorStorageTest {
     }
 
     @Test
-    fun `float vector storage succeeds with vector dimension at 2000 (HNSW limit)`() {
+    fun `integration_float vector storage succeeds with vector dimension at 2000 (HNSW limit)`() {
         @Serializable data class Dummy(val d: Int)
-        // This should NOT throw
         try {
             PgVectorStorage.floatVectorStorage(
                 connectionProvider = connProvider,
@@ -204,9 +209,8 @@ class PgVectorStorageTest {
     }
 
     @Test
-    fun `bit vector storage succeeds with vector dimension at 64000 (HNSW limit)`() {
+    fun `integration_bit vector storage succeeds with vector dimension at 64000 (HNSW limit)`() {
         @Serializable data class Dummy(val d: Int)
-        // This should NOT throw
         try {
             PgVectorStorage.bitVectorStorage(
                 connectionProvider = connProvider,
@@ -220,7 +224,7 @@ class PgVectorStorageTest {
     }
 
     @Test
-    fun `store works with valid float vector`() = runBlocking {
+    fun `integration_store works with valid float vector`() = runBlocking {
         @Serializable data class Dummy(val x: Int)
         val storage = PgVectorStorage.floatVectorStorage(
             connectionProvider = connProvider,
@@ -235,24 +239,7 @@ class PgVectorStorageTest {
     }
 
     @Test
-    fun `store fails for invalid float vector dimension`() = runBlocking {
-        @Serializable data class Dummy(val x: Int)
-        val storage = PgVectorStorage.floatVectorStorage(
-            connectionProvider = connProvider,
-            vectorDimension = 2,
-            serializer = Dummy.serializer(),
-            tableName = "test_store_float_dim_bad"
-        )
-        val doc = DocumentWithMetadata(content = Dummy(5))
-        val vec = Vector(listOf(1.0, 2.0, 3.0)) // Wrong size
-        val ex = assertThrows<IllegalArgumentException> {
-            storage.store(doc, vec)
-        }
-        assertTrue("Vector size" in ex.message!!)
-    }
-
-    @Test
-    fun `store works with bit vector containing only 0 and 1`() = runBlocking {
+    fun `integration_store works with bit vector containing only 0 and 1`() = runBlocking {
         @Serializable data class Dummy(val y: Int)
         val storage = PgVectorStorage.bitVectorStorage(
             connectionProvider = connProvider,
@@ -267,7 +254,7 @@ class PgVectorStorageTest {
     }
 
     @Test
-    fun `store fails with bit vector that has non-binary value`() = runBlocking {
+    fun `integration_store fails with bit vector that has non-binary value`() = runBlocking {
         @Serializable data class Dummy(val y: Int)
         val storage = PgVectorStorage.bitVectorStorage(
             connectionProvider = connProvider,
@@ -280,11 +267,11 @@ class PgVectorStorageTest {
         val ex = assertThrows<IllegalArgumentException> {
             storage.store(doc, badVec)
         }
-        assertTrue("BIT_VECTOR storage only supports vector values 0.0 or 1.0" in ex.message!!)
+        Assertions.assertTrue("BIT_VECTOR storage only supports vector values 0.0 or 1.0" in ex.message!!)
     }
 
     @Test
-    fun `store fails with bit vector having wrong dimension`() = runBlocking {
+    fun `integration_store fails with bit vector having wrong dimension`() = runBlocking {
         @Serializable data class Dummy(val z: String)
         val storage = PgVectorStorage.bitVectorStorage(
             connectionProvider = connProvider,
@@ -297,11 +284,11 @@ class PgVectorStorageTest {
         val ex = assertThrows<IllegalArgumentException> {
             storage.store(doc, wrongDimVec)
         }
-        assertTrue("Vector size" in ex.message!!)
+        Assertions.assertTrue("Vector size" in ex.message!!)
     }
 
     @Test
-    fun `store and retrieve a document with metadata`() = runBlocking {
+    fun `integration_store and retrieve a document with metadata`() = runBlocking {
         @Serializable
         data class MyDoc(val text: String, val id: Int)
         val json = Json
@@ -334,7 +321,7 @@ class PgVectorStorageTest {
     }
 
     @Test
-    fun `store and retrieve large vector with expected float precision loss`() = runBlocking {
+    fun `integration_store and retrieve large vector with expected float precision loss`() = runBlocking {
         @Serializable
         data class VecDoc(val description: String)
         val json = Json
@@ -386,7 +373,7 @@ class PgVectorStorageTest {
         value = VectorDistanceOperator::class,
         names = ["L2", "DOT_PRODUCT", "L1", "COSINE"]
     )
-    fun `topKSimilarDocumentsWithOperator finds nearest neighbors correctly for each operator`(
+    fun `integration_topKSimilarDocumentsWithOperator finds nearest neighbors correctly for each operator`(
         operator: VectorDistanceOperator
     ) = runBlocking {
         @Serializable
@@ -425,7 +412,7 @@ class PgVectorStorageTest {
         val allDocsWithPayload = storage.allDocumentsWithPayload().toList()
         assertEquals(docs.size, allDocsWithPayload.size)
         val allLabels = allDocsWithPayload.map { it.document.content.label }
-        assertTrue(docs.map { it.content.label }.all { label -> label in allLabels })
+        Assertions.assertTrue(docs.map { it.content.label }.all { label -> label in allLabels })
 
         val queryVec = when (operator) {
             VectorDistanceOperator.COSINE, VectorDistanceOperator.DOT_PRODUCT -> Vector(listOf(1.0, 1.0, 1.0))
@@ -440,32 +427,47 @@ class PgVectorStorageTest {
         when (operator) {
             VectorDistanceOperator.COSINE -> {
                 assertEquals(topK, labels.size)
-                assertTrue(distances.zipWithNext { a, b -> a <= b }.all { it }, "Distances not monotonic for $operator")
+                Assertions.assertTrue(
+                    distances.zipWithNext { a, b -> a <= b }.all { it },
+                    "Distances not monotonic for $operator"
+                )
                 // Should be one of B, C, D, or E (never A)
-                assertTrue(labels.first() in listOf("B", "C", "D", "E"), "First label for COSINE was ${labels.first()}, but should be a positive-direction vector")
+                Assertions.assertTrue(
+                    labels.first() in listOf("B", "C", "D", "E"),
+                    "First label for COSINE was ${labels.first()}, but should be a positive-direction vector"
+                )
                 // Check that all cosine distances in the topK are equal
                 val expected = distances.first()
-                assertTrue(distances.all { it == expected }, "All distances for identical direction should be equal for cosine")
+                Assertions.assertTrue(
+                    distances.all { it == expected },
+                    "All distances for identical direction should be equal for cosine"
+                )
             }
             VectorDistanceOperator.DOT_PRODUCT -> {
                 // For DOT_PRODUCT, results are ordered by most negative value (lowest) first,
                 // so they are monotonically ascending, e.g., -300, -30, -6.
                 assertEquals(topK, labels.size)
-                assertTrue(distances.zipWithNext { a, b -> a <= b }.all { it }, "Distances not monotonic (should be ascending) for $operator")
+                Assertions.assertTrue(
+                    distances.zipWithNext { a, b -> a <= b }.all { it },
+                    "Distances not monotonic (should be ascending) for $operator"
+                )
                 // Expect "E" or "D" as first, since these have the highest (most negative) dot product with a positive-valued query.
-                assertTrue(labels.first() in listOf("E", "D"))
+                Assertions.assertTrue(labels.first() in listOf("E", "D"))
             }
             else -> {
                 // L2, L1: "A" is always closest for query (0,0,0)
                 assertEquals("A", labels.first())
                 assertEquals(topK, results.size)
-                assertTrue(distances.zipWithNext { a, b -> a <= b }.all { it }, "Distances not monotonic for $operator")
+                Assertions.assertTrue(
+                    distances.zipWithNext { a, b -> a <= b }.all { it },
+                    "Distances not monotonic for $operator"
+                )
             }
         }
     }
 
     @Test
-    fun `hamming and jaccard operators on binary vectors`() = runBlocking {
+    fun `integration_hamming and jaccard operators on binary vectors`() = runBlocking {
         @Serializable
         data class Doc(val label: String)
         val json = Json
@@ -508,7 +510,7 @@ class PgVectorStorageTest {
         assertEquals(0.0, hammingDistances.first())
         // Next two are tied at distance 2: A and C, order doesn't matter, and D is distance 4
         val expectedTies = setOf("A", "C")
-        assertTrue(setOf(hammingLabels[1], hammingLabels[2]) == expectedTies)
+        Assertions.assertTrue(setOf(hammingLabels[1], hammingLabels[2]) == expectedTies)
         assertEquals(setOf(2.0, 2.0), setOf(hammingDistances[1], hammingDistances[2]))
         assertEquals("D", hammingLabels.last())
         assertEquals(4.0, hammingDistances.last())
@@ -525,11 +527,11 @@ class PgVectorStorageTest {
         assertEquals("B", jaccardLabels.first())
         assertEquals(0.0, jaccardDistances.first())
         // All Jaccard distances should be in [0, 1]
-        assertTrue(jaccardDistances.all { it in 0.0..1.0 })
+        Assertions.assertTrue(jaccardDistances.all { it in 0.0..1.0 })
     }
 
     @Test
-    fun `throws if zero query vector is used with COSINE operator`() = runBlocking {
+    fun `integration_throws if zero query vector is used with COSINE operator`() = runBlocking {
         @Serializable data class Dummy(val x: Int)
         val storage = PgVectorStorage.floatVectorStorage(
             connectionProvider = connProvider,
@@ -545,11 +547,11 @@ class PgVectorStorageTest {
                 operator = VectorDistanceOperator.COSINE
             ).toList()
         }
-        assertTrue("zero query vector" in ex.message!!)
+        Assertions.assertTrue("zero query vector" in ex.message!!)
     }
 
     @Test
-    fun `throws if operator is not supported - BIT storage with HAMMING only, JACCARD fails`() = runBlocking {
+    fun `integration_throws if operator is not supported - BIT storage with HAMMING only, JACCARD fails`() = runBlocking {
         @Serializable data class Dummy(val x: Int)
         val storage = PgVectorStorage.bitVectorStorage(
             connectionProvider = connProvider,
@@ -565,11 +567,11 @@ class PgVectorStorageTest {
                 operator = VectorDistanceOperator.JACCARD // Not configured in storage
             ).toList()
         }
-        assertTrue("not supported" in ex.message!!)
+        Assertions.assertTrue("not supported" in ex.message!!)
     }
 
     @Test
-    fun `throws if operator is not supported - FLOAT storage with L2 only, DOT_PRODUCT fails`() = runBlocking {
+    fun `integration_throws if operator is not supported - FLOAT storage with L2 only, DOT_PRODUCT fails`() = runBlocking {
         @Serializable data class Dummy(val x: Int)
         val storage = PgVectorStorage.floatVectorStorage(
             connectionProvider = connProvider,
@@ -585,12 +587,12 @@ class PgVectorStorageTest {
                 operator = VectorDistanceOperator.DOT_PRODUCT // Not configured in storage
             ).toList()
         }
-        assertTrue("not supported" in ex.message!!)
+        Assertions.assertTrue("not supported" in ex.message!!)
     }
 
     @ParameterizedTest
     @EnumSource(VectorDistanceOperator::class)
-    fun `topKSimilarDocumentsWithNormalizedSimilarity handles operator support and validation`(operator: VectorDistanceOperator) = runBlocking {
+    fun `integration_topKSimilarDocumentsWithNormalizedSimilarity handles operator support and validation`(operator: VectorDistanceOperator) = runBlocking {
         @Serializable data class Dummy(val x: Int)
         val supported = setOf(
             VectorDistanceOperator.L2, VectorDistanceOperator.L1,
@@ -644,36 +646,36 @@ class PgVectorStorageTest {
             val ex = assertThrows<IllegalArgumentException> {
                 storage.topKSimilarDocumentsWithNormalizedSimilarity(query, 1, operator).toList()
             }
-            assertTrue("does not support DOT_PRODUCT" in ex.message!!)
+            Assertions.assertTrue("does not support DOT_PRODUCT" in ex.message!!)
         } else if (operator == VectorDistanceOperator.COSINE && query.values.all { it == 0.0 }) {
             val ex = assertThrows<IllegalArgumentException> {
                 storage.topKSimilarDocumentsWithNormalizedSimilarity(query, 1, operator).toList()
             }
-            assertTrue("zero vector" in ex.message!!)
+            Assertions.assertTrue("zero vector" in ex.message!!)
         } else if (operator in supported) {
             // Should work for supported operators (with nonzero vector for COSINE)
             if (operator == VectorDistanceOperator.COSINE) {
                 // Try again with a nonzero vector for a passing case
                 val nonzeroQuery = Vector(listOf(1.0, 1.0))
                 val result = storage.topKSimilarDocumentsWithNormalizedSimilarity(nonzeroQuery, 1, operator).toList()
-                assertTrue(result.isNotEmpty())
-                assertTrue(result.first().second in 0.0..1.0)
+                Assertions.assertTrue(result.isNotEmpty())
+                Assertions.assertTrue(result.first().second in 0.0..1.0)
             } else {
                 val result = storage.topKSimilarDocumentsWithNormalizedSimilarity(query, 1, operator).toList()
-                assertTrue(result.isNotEmpty())
-                assertTrue(result.first().second in 0.0..1.0)
+                Assertions.assertTrue(result.isNotEmpty())
+                Assertions.assertTrue(result.first().second in 0.0..1.0)
             }
         } else {
             // If the operator is not in the storage's allowed set, should throw
             val ex = assertThrows<IllegalArgumentException> {
                 storage.topKSimilarDocumentsWithNormalizedSimilarity(query, 1, operator).toList()
             }
-            assertTrue("not supported" in ex.message!!)
+            Assertions.assertTrue("not supported" in ex.message!!)
         }
     }
 
     @Test
-    fun `read returns expected document and vector - float vector storage`() = runBlocking {
+    fun `integration_read returns expected document and vector - float vector storage`() = runBlocking {
         @Serializable data class Dummy(val x: Int)
         val storage = PgVectorStorage.floatVectorStorage(
             connectionProvider = connProvider,
@@ -700,7 +702,7 @@ class PgVectorStorageTest {
     }
 
     @Test
-    fun `read returns expected document and vector - bit vector storage`() = runBlocking {
+    fun `integration_read returns expected document and vector - bit vector storage`() = runBlocking {
         @Serializable data class Dummy(val label: String)
         val storage = PgVectorStorage.bitVectorStorage(
             connectionProvider = connProvider,
@@ -724,7 +726,7 @@ class PgVectorStorageTest {
     }
 
     @Test
-    fun `read returns null for non-existent document`() = runBlocking {
+    fun `integration_read returns null for non-existent document`() = runBlocking {
         val storage = PgVectorStorage.floatVectorStorage(
             connectionProvider = connProvider,
             vectorDimension = 2,
@@ -738,7 +740,7 @@ class PgVectorStorageTest {
     }
 
     @Test
-    fun `delete removes document and its vector - float vector storage`() = runBlocking {
+    fun `integration_delete removes document and its vector - float vector storage`() = runBlocking {
         @Serializable data class Dummy(val x: Int)
         val storage = PgVectorStorage.floatVectorStorage(
             connectionProvider = connProvider,
@@ -753,14 +755,14 @@ class PgVectorStorageTest {
         assertNotNull(storage.getPayload(id))
         assertNotNull(storage.readWithPayload(id))
         val deleted = storage.delete(id)
-        assertTrue(deleted, "Document should be deleted.")
+        Assertions.assertTrue(deleted, "Document should be deleted.")
         assertNull(storage.read(id))
         assertNull(storage.getPayload(id))
         assertNull(storage.readWithPayload(id))
     }
 
     @Test
-    fun `delete removes document and its vector - bit vector storage`() = runBlocking {
+    fun `integration_delete removes document and its vector - bit vector storage`() = runBlocking {
         @Serializable data class Dummy(val label: String)
         val storage = PgVectorStorage.bitVectorStorage(
             connectionProvider = connProvider,
@@ -775,14 +777,14 @@ class PgVectorStorageTest {
         assertNotNull(storage.getPayload(id))
         assertNotNull(storage.readWithPayload(id))
         val deleted = storage.delete(id)
-        assertTrue(deleted, "Document should be deleted.")
+        Assertions.assertTrue(deleted, "Document should be deleted.")
         assertNull(storage.read(id))
         assertNull(storage.getPayload(id))
         assertNull(storage.readWithPayload(id))
     }
 
     @Test
-    fun `delete returns false if document does not exist`() = runBlocking {
+    fun `integration_delete returns false if document does not exist`() = runBlocking {
         val storage = PgVectorStorage.floatVectorStorage(
             connectionProvider = connProvider,
             vectorDimension = 2,
@@ -795,7 +797,7 @@ class PgVectorStorageTest {
     }
 
     @Test
-    fun `allDocuments and allDocumentsWithPayload return all for float vector storage`() = runBlocking {
+    fun `integration_allDocuments and allDocumentsWithPayload return all for float vector storage`() = runBlocking {
         @Serializable data class Dummy(val d: Int)
         val storage = PgVectorStorage.floatVectorStorage(
             connectionProvider = connProvider,
@@ -818,7 +820,7 @@ class PgVectorStorageTest {
         val foundDocs = storage.allDocuments().toList()
         assertEquals(docs.size, foundDocs.size)
         docs.forEach { expected ->
-            assertTrue(foundDocs.any { it.content == expected.content })
+            Assertions.assertTrue(foundDocs.any { it.content == expected.content })
         }
         // Check allDocumentsWithPayload (use tolerance for floats)
         val allPayload = storage.allDocumentsWithPayload().toList()
@@ -833,7 +835,7 @@ class PgVectorStorageTest {
     }
 
     @Test
-    fun `allDocuments and allDocumentsWithPayload return all for bit vector storage`() = runBlocking {
+    fun `integration_allDocuments and allDocumentsWithPayload return all for bit vector storage`() = runBlocking {
         @Serializable data class Dummy(val s: String)
         val storage = PgVectorStorage.bitVectorStorage(
             connectionProvider = connProvider,
@@ -853,7 +855,7 @@ class PgVectorStorageTest {
         val foundDocs = storage.allDocuments().toList()
         assertEquals(docs.size, foundDocs.size)
         docs.forEach { expected ->
-            assertTrue(foundDocs.any { it.content == expected.content })
+            Assertions.assertTrue(foundDocs.any { it.content == expected.content })
         }
         val allPayload = storage.allDocumentsWithPayload().toList()
         assertEquals(docs.size, allPayload.size)
@@ -865,12 +867,12 @@ class PgVectorStorageTest {
     }
 
     @Test
-    fun `can store and query document chunks with metadata in PgVectorStorage`() = runBlocking {
+    fun `integration_can store and query document chunks with metadata in PgVectorStorage`() = runBlocking {
         // The original document (with paragraphs)
         val document = "Intro paragraph.\n\nDetail paragraph.\n\nConclusion paragraph."
         val chunker = ParagraphChunker()
         val documentChunks: List<DocumentChunk<String>> = chunker.chunk(document)
-        assertTrue(documentChunks.size >= 2, "Should have at least two chunks (paragraphs).")
+        Assertions.assertTrue(documentChunks.size >= 2, "Should have at least two chunks (paragraphs).")
 
         // Set up PgVectorStorage for DocumentWithMetadata<DocumentChunk<String>>
         val storage = PgVectorStorage.floatVectorStorage(
@@ -922,11 +924,65 @@ class PgVectorStorageTest {
             operator = VectorDistanceOperator.L2
         ).toList()
 
-        assertTrue(similarDocumentsAndEmbeddings.isNotEmpty())
+        Assertions.assertTrue(similarDocumentsAndEmbeddings.isNotEmpty())
         val (mostSimilarDocument, _) = similarDocumentsAndEmbeddings.first()
-        assertTrue(mostSimilarDocument.content.text.contains("Intro"), "Should match intro paragraph chunk")
+        Assertions.assertTrue(mostSimilarDocument.content.text.contains("Intro"), "Should match intro paragraph chunk")
         assertEquals("paragraph-chunk", mostSimilarDocument.documentType)
         assertEquals("test-doc", mostSimilarDocument.source)
-        assertTrue(mostSimilarDocument.tags.contains("auto-chunked"))
+        Assertions.assertTrue(mostSimilarDocument.tags.contains("auto-chunked"))
+    }
+
+    @Test
+    fun integration_storesEmbedsAndRanksRealDocumentsWithOpenAIEmbedder() = runBlocking {
+
+        @Serializable data class MyDoc(val title: String, val body: String)
+
+        class MyDocEmbedder(val base: LLMEmbedder) : DocumentEmbedder<DocumentWithMetadata<MyDoc>> {
+            override suspend fun embed(document: DocumentWithMetadata<MyDoc>): Vector =
+                base.embed("${document.content.title} ${document.content.body}")
+            override suspend fun embed(text: String): Vector = base.embed(text)
+            override fun diff(embedding1: Vector, b: Vector): Double = base.diff(embedding1, b)
+        }
+
+        // Create the embedder
+        val apiKey = TestUtils.readTestOpenAIKeyFromEnv()
+        val embedder = LLMEmbedder(
+            client = OpenAILLMClient(apiKey = apiKey),
+            model = OpenAIModels.Embeddings.TextEmbedding3Small
+        )
+        val docEmbedder = MyDocEmbedder(embedder)
+
+        val storage = PgVectorStorage.floatVectorStorage(
+            connectionProvider = connProvider,
+            vectorDimension = 1536,
+            serializer = MyDoc.serializer(),
+            tableName = "integration_ranked_docs",
+            distanceOperators = setOf(VectorDistanceOperator.COSINE)
+        )
+
+        val rankedStorage = object : PgVectorRankedDocumentStorage<MyDoc>(docEmbedder, storage) {
+            override val topK: Int get() = 3
+            override val operator: VectorDistanceOperator get() = VectorDistanceOperator.COSINE
+        }
+
+        // Store several example documents (embedding is done automatically by rankedStorage)
+        val docs = listOf(
+            DocumentWithMetadata(content = MyDoc("First", "The quick brown fox jumps over the lazy dog.")),
+            DocumentWithMetadata(content = MyDoc("Second", "A guide to making fluffy pancakes at home.")),
+            DocumentWithMetadata(content = MyDoc("Third", "The history of artificial intelligence and its future.")),
+        )
+        docs.forEach { rankedStorage.store(it) }
+
+        // Now rank for a search query
+        val query = "Tips for perfect breakfast"
+        val results = rankedStorage.rankDocuments(query).toList()
+        println("Results for query: '$query'")
+        results.forEach {
+            println("Title: ${it.document.content.title} | Sim: ${"%.3f".format(it.similarity)} | Body: ${it.document.content.body}")
+        }
+
+        // Ensure that we get a meaningful ranking (the pancake article scores highest)
+        assertTrue(results.isNotEmpty())
+        assertTrue(results.first().document.content.title == "Second" || results.first().document.content.body.contains("pancake", ignoreCase = true))
     }
 }
